@@ -77,6 +77,6 @@ split -l 20000 $GENOTYPEINPUT
 
 cd ..
 
-for i in $FLAG.split/*; do Rscript MEGA.PDD.PC.R $SUBINPUT $LONGINPUT $MEGASAMPLE $i $OUTPUT; done
+for i in $FLAG.split/*; do Rscript MEGA.PDD.PCA.R $SUBINPUT $LONGINPUT $MEGASAMPLE $i $OUTPUT; done
 
 rm -r $FLAG.split

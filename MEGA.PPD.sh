@@ -73,6 +73,7 @@ fi
 mkdir $FLAG.split
 cd    $FLAG.split
 
+# split genotype file into small parts
 split -l 20000 $GENOTYPEINPUT
 
 cd ..

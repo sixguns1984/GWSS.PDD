@@ -15,21 +15,19 @@ MEGASubject<-read.delim(subjectinput, header=T, check.names=F)
 # read longitude data
 MEGALongitude<-read.delim(Longitudinalinput, header=T, check.names=F)
 
-### merge longitude, Subject dataframe
+### merge longitude and subject dataframe
 MEGALongSub<-merge(MEGALongitude,MEGASubject, by=c("ID","STUDY_NAME"))
 MEGALongSub[,"AGEVISIT"]<-with(MEGALongSub,AGE+YEARS)
 MEGALongSub[,"DURVISIT"]<-with(MEGALongSub,YEARS+DURBASE)
 
-# read MEGAPlate
+# read sample name with the same order as genotyping data
 MEGAPlate<-read.delim(sampleinput, header=T, check.names=F)
 
 # read genotyping data
 MEGAPGenotype<-read.delim(file=genotypeinput, header=F, check.names=F,row.names=1)
 colnames(MEGAPGenotype)<-MEGAPlate$ID
 
-#MEGAPlateSubject<-merge(MEGAPlate,MEGASubject,by=c("ID"))
-
-######
+###### exclude LS1 dataset, as it use different criteria to determinate "PD dementia"
 LongSubSNP<-subset(subset(MEGALongSub,STUDY_NAME!="LS1"),DURVISIT<=12)
 DementiaLSub<-subset(LongSubSNP, DEMENTIA==1)
 LSDementia<-merge(aggregate(DURVISIT~ID, data=DementiaLSub, min),LongSubSNP,by=c("ID","DURVISIT"))
@@ -37,33 +35,29 @@ LSDementia<-merge(aggregate(DURVISIT~ID, data=DementiaLSub, min),LongSubSNP,by=c
 DementiaLargeLSub<-subset(LongSubSNP, !ID %in% as.character(LSDementia$ID))
 DementiaLargeLSub<-subset(DementiaLargeLSub,DEMENTIA==0)
 LSDementiaLarge<-merge(aggregate(DURVISIT~ID, data=DementiaLargeLSub, max),LongSubSNP,by=c("ID","DURVISIT"))
-#replace Dementia value to 0
 
 LSDementia<-subset(LSDementia,YEARS>0)
 SubDementia.raw<-rbind(LSDementia,LSDementiaLarge)
 
+###### For LS1 dataset, as it use different criteria to determinate "PD dementia"
 LongSubSNPLS1<-subset(subset(MEGALongSub,STUDY_NAME=="LS1"),DURVISIT<=12)
 DementiaLSubLS1<-subset(LongSubSNPLS1, SCOPACOG<=22)
 LSDementiaLS1<-merge(aggregate(DURVISIT~ID, data=DementiaLSubLS1, min),LongSubSNPLS1,by=c("ID","DURVISIT"))
-#replace Dementia value to 1
 LSDementiaLS1$DEMENTIA<-1
 
 DementiaLargeLSubLS1<-subset(LongSubSNPLS1, !ID %in% as.character(LSDementiaLS1$ID))
 DementiaLargeLSubLS1<-subset(DementiaLargeLSubLS1, SCOPACOG>22)
 LSDementiaLargeLS1<-merge(aggregate(DURVISIT~ID, data=DementiaLargeLSubLS1, max),DementiaLargeLSubLS1,by=c("ID","DURVISIT"))
-#replace Dementia value to 0
+
 LSDementiaLargeLS1$DEMENTIA<-0
 LSDementiaLS1<-subset(LSDementiaLS1,YEARS>0)
 SubDementia.raw.LS1<-rbind(LSDementiaLS1,LSDementiaLargeLS1)
 
+####### all avialable PD subjects for further Cox analysis
 SubDementia.raw<-rbind(SubDementia.raw,SubDementia.raw.LS1)
-Sub1Yr<-subset(SubDementia.raw,DURVISIT<=1 & DEMENTIA==1)
-SubDementia.raw<-SubDementia.raw[!SubDementia.raw$ID %in% Sub1Yr$ID,]
 
 
-
-##### reference as allele code; judge Carrier and non-carrier based on Minor allele
-
+##### Carrier or non-carrier of a allele for each subject
 SetCarrier<-function(DF) {
   
   Temp<-DF
@@ -81,6 +75,7 @@ SetCarrier<-function(DF) {
   return(Temp)
 }
 
+###### Genome-wide association study using Cox regression anlaysis for PD dementia
 
 SNPCoxP<-NULL
 
@@ -89,21 +84,20 @@ for (i in 1:nrow(MEGAPGenotype))
   SNPID<-rownames(MEGAPGenotype)[i]
   MEGATemp<-t(MEGAPGenotype[i,]) 
   MEGATemp<-data.frame(ID=rownames(MEGATemp), SNP=MEGATemp,row.names=NULL,check.names=FALSE)
-
-  ##### reference as allele code; judge Carrier and non-carrier
-  
-  
-#  LongSubSNP<-merge(MEGALongSub,MEGATemps, by=c("ID"))
-	
-    
+	  
     tryCatch({
       MEGATemps<-SetCarrier(MEGATemp)
       SubDementia<-merge(SubDementia.raw,MEGATemps, by=c("ID"))
+
+# using survdiff function to check allele effects on PD dementia only	    
       Dementiadif<-survdiff(Surv(DURVISIT,DEMENTIA)~SNP, data=SubDementia)
       difp.val <- 1 - pchisq(Dementiadif$chisq, length(Dementiadif$n) - 1)
+
+# using coxph function to check allele effects on PD dementiaby adjusting covariates
       Dementiafmcox<-coxph(Surv(DURVISIT,DEMENTIA)~AAO+SNP+YEARSEDUC+SEX+PC1+PC2+PC3+PC4+PC5+PC6+PC7+PC8+PC9+PC10+frailty(STUDY_NAME),data=SubDementia, method="breslow")
       Dementiafmcoxp.val<-summary(Dementiafmcox)$coefficients[2,6]
       Dementiafmcox.Conf<-summary(Dementiafmcox)$conf.int[2,]
+
       Temp<-data.frame(cbind(difp.val,Dementiafmcoxp.val),t(Dementiafmcox.Conf),SNP=SNPID,TN=nrow(SubDementia),CarrierN=nrow(subset(SubDementia,CARRIER=="Y")),NonCarrier=nrow(subset(SubDementia,CARRIER=="N")))
       SNPCoxP<-rbind(SNPCoxP,Temp)},error=function(e){})
 
